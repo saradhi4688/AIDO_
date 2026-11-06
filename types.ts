@@ -1,6 +1,10 @@
 export type UserRole = 'seeker' | 'provider' | 'admin' | null;
 
 export interface UserData {
+  id?: string;
+  email?: string;
+  isActiveAidmate?: boolean;
+  isAvailable?: boolean;
   name: string;
   mobile: string;
   overallRating?: number;
@@ -73,6 +77,8 @@ export interface PendingAidmate {
 
 export interface Deal {
   id: string | number;
+  seekerUid?: string;
+  providerUid?: string;
   service: string;
   location: string;
   time: string;

@@ -11,7 +11,7 @@ interface SettingsPageProps {
   onLogout: () => void;
   userRole: UserRole;
   profileData?: AidmateProfile;
-  onUpdateProfile?: (updatedProfile: AidmateProfile) => void;
+  onUpdateProfile?: (updatedProfile: AidmateProfile, photoFile?: File | null) => Promise<void> | void;
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onLogout, userRole, profileData, onUpdateProfile }) => {
@@ -96,7 +96,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onLogout, userRole,
           <div className="bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-2xl flex items-center gap-1.5">
             <svg className="w-5 h-5 text-amber-500 fill-amber-500" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             <span className="text-xl font-black text-gray-900">
-              {(profileData?.overallRating || 5.0).toFixed(1)}
+              {(profileData?.overallRating ?? 0).toFixed(1)}
             </span>
             <span className="text-xs text-gray-400">/ 5.0</span>
           </div>
@@ -104,7 +104,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onLogout, userRole,
 
         <div className="grid grid-cols-5 gap-2 text-center p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
           {([5, 4, 3, 2, 1] as const).map(star => {
-            const count = profileData?.ratings ? profileData.ratings[star] : (star === 5 ? 1 : 0);
+            const count = profileData?.ratings?.[star] ?? 0;
             return (
               <div key={star} className="p-1">
                 <p className="text-base font-black text-gray-800">{count}</p>
@@ -114,11 +114,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onLogout, userRole,
           })}
         </div>
         <p className="text-[11px] text-gray-500 text-center">
-          {profileData?.reviewCount ? `${profileData.reviewCount} total verified ratings` : '1 initial verified trust rating'}
+          {profileData?.reviewCount ? `${profileData.reviewCount} total verified ratings` : 'No ratings yet'}
         </p>
       </Card>
 
-      {profileData && onUpdateProfile && (
+      {userRole === 'provider' && profileData && onUpdateProfile && (
         <ProviderSettings profileData={profileData} onUpdateProfile={onUpdateProfile} />
       )}
 

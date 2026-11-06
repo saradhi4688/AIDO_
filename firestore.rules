@@ -1,0 +1,247 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verifiedUser() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function emptyRatings(ratings) {
+      return ratings is map
+        && ratings.keys().hasOnly(['5', '4', '3', '2', '1'])
+        && ratings['5'] == 0
+        && ratings['4'] == 0
+        && ratings['3'] == 0
+        && ratings['2'] == 0
+        && ratings['1'] == 0;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function profilePath(uid) {
+      return /databases/$(database)/documents/publicProfiles/$(uid);
+    }
+
+    function isActiveAidmate() {
+      return verifiedUser()
+        && exists(userPath(request.auth.uid))
+        && exists(profilePath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.accountType == 'provider'
+        && get(userPath(request.auth.uid)).data.isActiveAidmate == true
+        && get(profilePath(request.auth.uid)).data.isVerified == true
+        && get(profilePath(request.auth.uid)).data.isAvailable == true;
+    }
+
+    function isDealParticipant(dealId) {
+      let deal = get(/databases/$(database)/documents/deals/$(dealId));
+      return verifiedUser()
+        && exists(/databases/$(database)/documents/deals/$(dealId))
+        && deal.data.status == 'accepted'
+        && (deal.data.seekerUid == request.auth.uid || deal.data.providerUid == request.auth.uid);
+    }
+
+    function canReviewDeal(dealId, targetUserId, targetRole) {
+      let path = /databases/$(database)/documents/deals/$(dealId);
+      let deal = get(path);
+      return exists(path)
+        && deal.data.status in ['accepted', 'completed']
+        && (
+          (targetRole == 'aidmate'
+            && deal.data.seekerUid == request.auth.uid
+            && deal.data.providerUid == targetUserId)
+          || (targetRole == 'customer'
+            && deal.data.providerUid == request.auth.uid
+            && deal.data.seekerUid == targetUserId)
+        );
+    }
+
+    match /users/{uid} {
+      allow get, list: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'name', 'email', 'mobile', 'accountType', 'isActiveAidmate', 'isVerified',
+          'skills', 'certificates', 'overallRating', 'reviewCount', 'ratingTotal', 'ratings',
+          'experienceYears', 'createdAt'
+        ])
+        && request.resource.data.accountType in ['seeker', 'provider']
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 3
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.mobile.matches('^[0-9]{10}$')
+        && request.resource.data.isActiveAidmate == false
+        && request.resource.data.isVerified == false
+        && request.resource.data.overallRating == 0
+        && request.resource.data.reviewCount == 0
+        && request.resource.data.ratingTotal == 0
+        && emptyRatings(request.resource.data.ratings)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.accountType == resource.data.accountType
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.isActiveAidmate == resource.data.isActiveAidmate
+        && request.resource.data.isVerified == resource.data.isVerified
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'mobile', 'skills', 'bio', 'location', 'profilePictureUrl', 'experienceYears'
+        ])
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /publicProfiles/{uid} {
+      allow get, list: if verifiedUser();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && getAfter(userPath(uid)).data.accountType == 'provider'
+        && request.resource.data.isVerified == false
+        && request.resource.data.isAvailable == false
+        && request.resource.data.keys().hasOnly([
+          'name', 'mobile', 'profilePictureUrl', 'district', 'state', 'overallRating',
+          'reviewCount', 'ratingTotal', 'services', 'skills', 'jobs', 'ratings', 'isAvailable',
+          'isVerified', 'location', 'distance', 'bio'
+        ])
+        && request.resource.data.overallRating == 0
+        && request.resource.data.reviewCount == 0
+        && request.resource.data.ratingTotal == 0
+        && emptyRatings(request.resource.data.ratings);
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.isVerified == resource.data.isVerified
+        && request.resource.data.overallRating == resource.data.overallRating
+        && request.resource.data.reviewCount == resource.data.reviewCount
+        && request.resource.data.ratings == resource.data.ratings
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'mobile', 'profilePictureUrl', 'district', 'state', 'services',
+          'skills', 'location', 'distance', 'bio', 'isAvailable'
+        ])
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAvailable'])
+          || request.resource.data.isAvailable == false
+          || get(userPath(uid)).data.isActiveAidmate == true
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if isAdmin();
+      allow create: if verifiedUser()
+        && request.resource.data.keys().hasOnly([
+          'reviewerId', 'reviewerName', 'jobId', 'targetUserId', 'targetName',
+          'targetMobile', 'targetRole', 'rating', 'comment', 'createdAt'
+        ])
+        && request.resource.data.reviewerId == request.auth.uid
+        && request.resource.data.reviewerName is string
+        && request.resource.data.reviewerName.size() <= 100
+        && request.resource.data.jobId is string
+        && request.resource.data.jobId.matches('^[A-Za-z0-9_-]{1,200}$')
+        && request.resource.data.targetUserId is string
+        && exists(userPath(request.resource.data.targetUserId))
+        && request.resource.data.targetRole in ['customer', 'aidmate']
+        && canReviewDeal(
+          request.resource.data.jobId,
+          request.resource.data.targetUserId,
+          request.resource.data.targetRole
+        )
+        && (
+          (request.resource.data.targetRole == 'aidmate'
+            && get(userPath(request.resource.data.targetUserId)).data.accountType == 'provider')
+          || (request.resource.data.targetRole == 'customer'
+            && get(userPath(request.resource.data.targetUserId)).data.accountType == 'seeker')
+        )
+        && reviewId == request.auth.uid + '_' + request.resource.data.jobId + '_' + request.resource.data.targetRole
+        && request.resource.data.targetName is string
+        && request.resource.data.targetName.size() <= 100
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && request.resource.data.comment is string
+        && request.resource.data.comment.size() <= 2000
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /deals/{dealId} {
+      allow get, list: if isAdmin()
+        || (verifiedUser() && resource.data.seekerUid == request.auth.uid)
+        || (verifiedUser() && resource.data.providerUid == request.auth.uid)
+        || (isActiveAidmate() && resource.data.status == 'pending');
+      allow create: if verifiedUser()
+        && request.resource.data.keys().hasOnly([
+          'service', 'location', 'time', 'seekerName', 'seekerMobile', 'seekerLocation',
+          'offer', 'description', 'imageUrl', 'seekerUid', 'status', 'createdAt'
+        ])
+        && request.resource.data.seekerUid == request.auth.uid
+        && get(userPath(request.auth.uid)).data.accountType == 'seeker'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.service is string
+        && request.resource.data.service.size() > 0
+        && request.resource.data.service.size() <= 500
+        && request.resource.data.location is string
+        && request.resource.data.seekerName == get(userPath(request.auth.uid)).data.name
+        && request.resource.data.seekerMobile == get(userPath(request.auth.uid)).data.mobile
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin()
+        || (
+          isActiveAidmate()
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'accepted'
+          && request.resource.data.providerUid == request.auth.uid
+          && request.resource.data.providerName == get(userPath(request.auth.uid)).data.name
+          && request.resource.data.providerMobile == get(userPath(request.auth.uid)).data.mobile
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'providerUid', 'providerName', 'providerMobile', 'providerLocation', 'acceptedAt'
+          ])
+          && request.resource.data.acceptedAt == request.time
+        )
+        || (
+          verifiedUser()
+          && resource.data.status == 'accepted'
+          && request.resource.data.status == 'completed'
+          && (resource.data.seekerUid == request.auth.uid || resource.data.providerUid == request.auth.uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt'])
+          && request.resource.data.completedAt == request.time
+        )
+        || (
+          verifiedUser()
+          && resource.data.seekerUid == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['imageUrl'])
+        );
+      allow delete: if isAdmin()
+        || (verifiedUser() && resource.data.seekerUid == request.auth.uid && resource.data.status == 'pending');
+
+      match /messages/{messageId} {
+        allow read: if isAdmin() || isDealParticipant(dealId);
+        allow create: if isDealParticipant(dealId)
+          && request.resource.data.keys().hasOnly([
+            'text', 'senderId', 'mediaUrl', 'senderUid', 'timestamp'
+          ])
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.senderId
+            == get(userPath(request.auth.uid)).data.accountType
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 4000
+          && request.resource.data.timestamp == request.time
+          && (!('mediaUrl' in request.resource.data)
+            || (request.resource.data.mediaUrl is string
+              && request.resource.data.mediaUrl.matches('^https://firebasestorage.googleapis.com/.*$')));
+        allow update, delete: if false;
+      }
+    }
+  }
+}

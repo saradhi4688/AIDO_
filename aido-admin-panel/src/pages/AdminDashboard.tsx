@@ -9,7 +9,7 @@ import {
 import TopNavbar from '../components/TopNavbar';
 import UnifiedUserTable from '../components/UnifiedUserTable';
 import DetailInspectorModal from '../components/DetailInspectorModal';
-import { getAdminToken } from '../services/adminAuth.service';
+import { getAdminSession } from '../services/adminAuth.service';
 
 interface AdminDashboardProps {
   adminEmail: string;
@@ -18,7 +18,7 @@ interface AdminDashboardProps {
 
 export default function AdminDashboard({ adminEmail, onLogout }: AdminDashboardProps) {
   const [users, setUsers] = useState<UnifiedAidoUser[]>([]);
-  const [dataSource, setDataSource] = useState<'FIREBASE' | 'ENDPOINT' | 'DEMO_MODE'>('DEMO_MODE');
+  const [dataSource, setDataSource] = useState<'FIREBASE'>('FIREBASE');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,7 +33,7 @@ export default function AdminDashboard({ adminEmail, onLogout }: AdminDashboardP
       setUsers(result.users);
       setDataSource(result.source);
     } catch (error) {
-      if (!getAdminToken()) {
+      if (!getAdminSession()) {
         onLogout();
         return;
       }
@@ -52,7 +52,7 @@ export default function AdminDashboard({ adminEmail, onLogout }: AdminDashboardP
       setUsers(await toggleUserAidmateStatus(userId, !currentState));
       setLoadError('');
     } catch (error) {
-      if (!getAdminToken()) {
+      if (!getAdminSession()) {
         onLogout();
         return;
       }
@@ -65,7 +65,7 @@ export default function AdminDashboard({ adminEmail, onLogout }: AdminDashboardP
       setUsers(await toggleUserVerificationBadge(userId, !currentVerified));
       setLoadError('');
     } catch (error) {
-      if (!getAdminToken()) {
+      if (!getAdminSession()) {
         onLogout();
         return;
       }

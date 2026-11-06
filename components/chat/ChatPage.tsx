@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Deal, Message, UserData, UserRole, AidmateProfile } from '../../types';
-import { sendMessage, onNewMessage } from '../../firebase';
+import { sendMessage, onNewMessage, uploadChatMedia } from '../../services/firestore';
 import SeekerLocationModal from './SeekerLocationModal';
 import VerifiedBadge from '../ui/VerifiedBadge';
 
@@ -16,6 +16,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ deal, currentUser, onBack, userRole
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showProviderActions, setShowProviderActions] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -42,7 +44,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ deal, currentUser, onBack, userRole
         }
         return [...prevMessages, message];
       });
-    });
+    }, error => setSendError(error.message));
     return () => unsubscribe();
   }, [deal.id]);
 
@@ -50,16 +52,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ deal, currentUser, onBack, userRole
     const hasRealSeekerMessage = messages.some(m => m.senderId === 'seeker');
 
     if (userRole === 'provider' && !hasRealSeekerMessage) {
-        const mockInitialMessage: Message = {
-            id: 'initial-mock-message',
-            text: `Hey, I want ${deal.service}`,
-            senderId: 'seeker',
-            timestamp: Date.now() - 1000
-        };
-        return [mockInitialMessage, ...messages].sort((a, b) => a.timestamp - b.timestamp);
+        return [...messages].sort((a, b) => a.timestamp - b.timestamp);
     }
     
-    return messages.sort((a, b) => a.timestamp - b.timestamp);
+    return [...messages].sort((a, b) => a.timestamp - b.timestamp);
   }, [messages, userRole, deal.service]);
 
   useEffect(() => {
@@ -77,44 +73,49 @@ const ChatPage: React.FC<ChatPageProps> = ({ deal, currentUser, onBack, userRole
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [derivedMessages]);
   
-  const handleAcceptJob = () => {
-    sendMessage(deal.id, { text: "I'd be happy to help. What are the details?", senderId: 'provider' });
-  };
-  
-  const handleDenyJob = () => {
-    sendMessage(deal.id, { text: "Sorry, I am unable to take this request at the moment.", senderId: 'provider' });
-  };
-
-  const handleSendMessage = () => {
-    if (newMessage.trim() === '') return;
-    const senderId = userRole === 'provider' ? 'provider' : 'seeker';
-    sendMessage(deal.id, { text: newMessage, senderId });
-    setNewMessage('');
-    
-    if (senderId === 'seeker') {
-        setTimeout(() => {
-            const replyText = `Ok, I've received your request for "${deal.service}". I will get back to you shortly.`;
-            sendMessage(deal.id, { text: replyText, senderId: 'provider' });
-            window.dispatchEvent(new CustomEvent('show-notification', {
-                detail: { 
-                    title: `Message sent to ${deal.seekerName}`,
-                    body: "They will be notified of your response.",
-                }
-            }));
-        }, 1500);
+  const handleAcceptJob = async () => {
+    try {
+      await sendMessage(deal.id, { text: "I'd be happy to help. What are the details?", senderId: 'provider' });
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Message could not be sent.');
     }
   };
   
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDenyJob = async () => {
+    try {
+      await sendMessage(deal.id, { text: "Sorry, I am unable to take this request at the moment.", senderId: 'provider' });
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Message could not be sent.');
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (newMessage.trim() === '') return;
+    const senderId = userRole === 'provider' ? 'provider' : 'seeker';
+    setSendError('');
+    try {
+      await sendMessage(deal.id, { text: newMessage.trim(), senderId });
+      setNewMessage('');
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Message could not be sent.');
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const reader = new FileReader();
       const senderId = userRole === 'provider' ? 'provider' : 'seeker';
-      reader.onload = (event) => {
-        const mediaUrl = event.target?.result as string;
-        sendMessage(deal.id, { text: '', senderId, mediaUrl: mediaUrl });
-      };
-      reader.readAsDataURL(file);
+      setIsUploading(true);
+      setSendError('');
+      try {
+        const mediaUrl = await uploadChatMedia(deal.id, file);
+        await sendMessage(deal.id, { text: '', senderId, mediaUrl });
+      } catch (error) {
+        setSendError(error instanceof Error ? error.message : 'Image could not be uploaded.');
+      } finally {
+        setIsUploading(false);
+        e.target.value = '';
+      }
     }
   };
 
@@ -193,25 +194,31 @@ const ChatPage: React.FC<ChatPageProps> = ({ deal, currentUser, onBack, userRole
       <div className="p-4 border-t flex items-center space-x-2">
         <label htmlFor="file-upload" className={`cursor-pointer p-2 rounded-full ${showProviderActions ? 'opacity-50' : 'hover:bg-gray-100'}`}>
            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-           <input id="file-upload" type="file" accept="image/*,video/*" className="hidden" onChange={handleFileUpload} disabled={showProviderActions} />
+           <input id="file-upload" type="file" accept="image/*" className="hidden" onChange={handleFileUpload} disabled={showProviderActions || isUploading} />
         </label>
         <input
           type="text"
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+          onKeyPress={(e) => e.key === 'Enter' && void handleSendMessage()}
           placeholder={showProviderActions ? 'Please respond to the request above' : 'Type a message...'}
           className="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100"
           disabled={showProviderActions}
         />
         <button 
-            onClick={handleSendMessage} 
+            onClick={() => void handleSendMessage()}
             className="p-2 rounded-full bg-indigo-500 text-white hover:bg-indigo-600 disabled:bg-indigo-300"
-            disabled={showProviderActions || !newMessage.trim()}
+            disabled={showProviderActions || isUploading || !newMessage.trim()}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
         </button>
       </div>
+
+      {sendError && (
+        <p role="alert" className="border-t border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {sendError}
+        </p>
+      )}
 
        {isLocationModalOpen && deal.seekerLocation && provider?.location && (
         <SeekerLocationModal

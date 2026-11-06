@@ -1,0 +1,78 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verifiedUser() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function dealPath(dealId) {
+      return /databases/(default)/documents/deals/$(dealId);
+    }
+
+    function isDealParticipant(dealId) {
+      return signedIn()
+        && firestore.exists(dealPath(dealId))
+        && firestore.get(dealPath(dealId)).data.status == 'accepted'
+        && (
+          firestore.get(dealPath(dealId)).data.seekerUid == request.auth.uid
+          || firestore.get(dealPath(dealId)).data.providerUid == request.auth.uid
+        );
+    }
+
+    function isActiveAidmate() {
+      return verifiedUser()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.exists(/databases/(default)/documents/publicProfiles/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.accountType == 'provider'
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isActiveAidmate == true
+        && firestore.get(/databases/(default)/documents/publicProfiles/$(request.auth.uid)).data.isVerified == true
+        && firestore.get(/databases/(default)/documents/publicProfiles/$(request.auth.uid)).data.isAvailable == true;
+    }
+
+    match /users/{uid}/certificates/{fileName} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('(image/(jpeg|png|webp)|application/pdf)');
+    }
+
+    match /users/{uid}/profile/{fileName} {
+      allow read: if verifiedUser();
+      allow write: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /deals/{dealId}/request/{fileName} {
+      allow read: if verifiedUser() && (
+        isAdmin()
+        || isDealParticipant(dealId)
+        || (isActiveAidmate()
+          && firestore.get(dealPath(dealId)).data.status == 'pending')
+      );
+      allow write: if signedIn()
+        && firestore.exists(dealPath(dealId))
+        && firestore.get(dealPath(dealId)).data.seekerUid == request.auth.uid
+        && firestore.get(dealPath(dealId)).data.status == 'pending'
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /deals/{dealId}/messages/{fileName} {
+      allow read: if isAdmin() || isDealParticipant(dealId);
+      allow write: if isDealParticipant(dealId)
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+  }
+}

@@ -5,7 +5,7 @@ import Button from '../ui/Button';
 
 interface ProviderSettingsProps {
   profileData: AidmateProfile;
-  onUpdateProfile: (updatedProfile: AidmateProfile) => void;
+  onUpdateProfile: (updatedProfile: AidmateProfile, photoFile?: File | null) => Promise<void> | void;
 }
 
 const ProviderSettings: React.FC<ProviderSettingsProps> = ({ profileData, onUpdateProfile }) => {
@@ -13,6 +13,8 @@ const ProviderSettings: React.FC<ProviderSettingsProps> = ({ profileData, onUpda
   const [newSkill, setNewSkill] = useState('');
   const [newProfilePic, setNewProfilePic] = useState<File | null>(null);
   const [newProfilePicUrl, setNewProfilePicUrl] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -49,18 +51,22 @@ const ProviderSettings: React.FC<ProviderSettingsProps> = ({ profileData, onUpda
     }
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     const updatedProfile = {
       ...profileData,
       skills: editedSkills,
-      // In a real app, you'd upload the newProfilePic and get a new URL.
-      // For this demo, we'll just use the local blob URL for the preview.
-      profilePictureUrl: newProfilePicUrl || profileData.profilePictureUrl,
+      profilePictureUrl: profileData.profilePictureUrl,
     };
-    onUpdateProfile(updatedProfile);
-    window.dispatchEvent(new CustomEvent('show-notification', {
-        detail: { title: 'Profile Updated', body: 'Your changes have been successfully saved.' }
-    }));
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      await onUpdateProfile(updatedProfile, newProfilePic);
+      setNewProfilePic(null);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Profile could not be saved.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -110,8 +116,9 @@ const ProviderSettings: React.FC<ProviderSettingsProps> = ({ profileData, onUpda
         </div>
         
         <div className="pt-4 border-t">
-            <Button onClick={handleSaveChanges}>
-                Save Changes
+            {saveError && <p role="alert" className="mb-3 text-sm text-red-600">{saveError}</p>}
+            <Button onClick={handleSaveChanges} disabled={isSaving}>
+                {isSaving ? 'Saving…' : 'Save Changes'}
             </Button>
         </div>
       </div>

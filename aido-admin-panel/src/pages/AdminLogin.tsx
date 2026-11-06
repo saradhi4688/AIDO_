@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Lock } from 'lucide-react';
-import { loginAdmin } from '../services/adminAuth.service';
+import { getAdminAuthErrorMessage, loginAdmin } from '../services/adminAuth.service';
 
 interface AdminLoginProps {
   onLoginSuccess: (email: string) => void;
@@ -20,7 +20,7 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
       const adminEmail = await loginAdmin(email.trim(), password);
       onLoginSuccess(adminEmail);
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : 'Admin sign-in failed.');
+      setError(getAdminAuthErrorMessage(loginError));
     } finally {
       setIsSubmitting(false);
     }
@@ -39,7 +39,7 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
             PEOPLE FOR PEOPLE — YOUR NEED. THEIR OPPORTUNITY.
           </p>
           <p className="text-xs text-[#64748B] mt-2">
-            Unified Customer & AIDMATE PostgreSQL Management
+            Unified Customer & AIDMATE Firebase Management
           </p>
         </div>
 

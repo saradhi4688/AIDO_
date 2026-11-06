@@ -68,22 +68,26 @@ export default function UnifiedUserTable({
                 <td className="border-b border-[#E2E8F0] px-4 py-4">
                   <button
                     type="button"
+                    disabled={user.accountType !== 'provider'}
                     onClick={() => void onToggleAidmate(user.id, user.isActiveAidmate)}
-                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${
+                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50 ${
                       user.isActiveAidmate
                         ? 'bg-[#DCFCE7] text-[#166534]'
                         : 'bg-[#F1F5F9] text-[#475569]'
                     }`}
                   >
-                    {user.isActiveAidmate ? 'AIDMATE ON' : 'NORMAL OFF'}
+                    {user.accountType !== 'provider'
+                      ? 'SEEKER'
+                      : user.isActiveAidmate ? 'AIDMATE ON' : 'AIDMATE OFF'}
                   </button>
                 </td>
 
                 <td className="border-b border-[#E2E8F0] px-4 py-4">
                   <button
                     type="button"
+                    disabled={user.accountType !== 'provider'}
                     onClick={() => void onToggleVerify(user.id, user.isVerified)}
-                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50 ${
                       user.isVerified
                         ? 'bg-[#DCFCE7] text-[#166534]'
                         : 'bg-[#FEE2E2] text-[#B91C1C]'

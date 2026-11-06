@@ -32,6 +32,7 @@ export interface UnifiedAidoUser {
   name: string;
   mobile: string;
   email?: string;
+  accountType?: 'seeker' | 'provider' | 'admin';
 
   // Toggle Button State: true = Active AIDMATE | false = Inactive AIDMATE (Normal Customer)
   isActiveAidmate: boolean;

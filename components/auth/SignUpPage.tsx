@@ -1,38 +1,39 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserData, UserRole, PendingAidmate } from '../../types';
+import { UserData, UserRole } from '../../types';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import { Lock, User, Wrench, Upload, FileCheck, Award, X, LogIn, UserPlus, ExternalLink } from 'lucide-react';
-import { AuthAccount, getUserRole, loginAccount, registerAccount } from '../../services/api';
+import {
+  getAuthErrorMessage,
+  getUserRole,
+  loginAccount,
+  registerAccount,
+  requestPasswordReset,
+} from '../../services/api';
 
 const ADMIN_PANEL_URL = import.meta.env.VITE_ADMIN_PANEL_URL || 'http://localhost:9000';
 
 interface SignUpPageProps {
   onSignUpSuccess: (data: UserData, role?: UserRole) => void;
-  onRegisterAidmatePending?: (pendingData: PendingAidmate) => void;
 }
 
-const SignUpPage: React.FC<SignUpPageProps> = ({ 
-  onSignUpSuccess, 
-  onRegisterAidmatePending,
-}) => {
+const SignUpPage: React.FC<SignUpPageProps> = ({ onSignUpSuccess }) => {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
   const [isFormValid, setIsFormValid] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
 
   const [activeTab, setActiveTab] = useState<'user' | 'aidmate'>('user');
   const [userMode, setUserMode] = useState<'login' | 'register'>('login');
   const [aidmateMode, setAidmateMode] = useState<'login' | 'register'>('login');
-  const [registeredAidmate, setRegisteredAidmate] = useState<AuthAccount | null>(null);
-
   const [aidmateSkill, setAidmateSkill] = useState('Plumbing');
   const [experienceYears, setExperienceYears] = useState('3');
   const [certificateName, setCertificateName] = useState('');
   const [certificateFile, setCertificateFile] = useState<File | null>(null);
-  const [certificatePreview, setCertificatePreview] = useState<string | null>(null);
   const [certificateType, setCertificateType] = useState('Trade Certificate / ITI / Government Certification');
   const [isSubmittedForVerification, setIsSubmittedForVerification] = useState(false);
 
@@ -43,11 +44,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
       ? userMode === 'register'
       : aidmateMode === 'register';
     setIsFormValid(
-      /^\d{10}$/.test(mobile) &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
       password.length >= 8 &&
-      (!registering || name.trim().length > 2),
+      (!registering || (name.trim().length > 2 && /^\d{10}$/.test(mobile))),
     );
-  }, [name, mobile, password, activeTab, userMode, aidmateMode]);
+  }, [name, email, mobile, password, activeTab, userMode, aidmateMode]);
 
   const handleMobileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, '');
@@ -62,18 +63,12 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
       setCertificateFile(file);
       setCertificateName(file.name);
 
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        setCertificatePreview(uploadEvent.target?.result as string);
-      };
-      reader.readAsDataURL(file);
     }
   };
 
   const removeCertificate = () => {
     setCertificateFile(null);
     setCertificateName('');
-    setCertificatePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -85,13 +80,17 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
 
     setIsVerifying(true);
     setAuthError('');
+    setAuthNotice('');
     try {
-      const account = userMode === 'register'
-        ? await registerAccount({ name: name.trim(), mobile, password, accountType: 'seeker' })
-        : await loginAccount({ mobile, password, accountType: 'seeker' });
+      if (userMode === 'register') {
+        await registerAccount({ name: name.trim(), email, mobile, password, accountType: 'seeker' });
+        setAuthNotice('Account created. Check your email and verify it before signing in.');
+        return;
+      }
+      const account = await loginAccount({ email, password, accountType: 'seeker' });
       onSignUpSuccess(account, getUserRole(account));
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Unable to authenticate. Please try again.');
+      setAuthError(getAuthErrorMessage(error));
     } finally {
       setIsVerifying(false);
     }
@@ -103,11 +102,12 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
 
     setIsVerifying(true);
     setAuthError('');
+    setAuthNotice('');
     try {
-      const account = await loginAccount({ mobile, password, accountType: 'provider' });
+      const account = await loginAccount({ email, password, accountType: 'provider' });
       onSignUpSuccess(account, getUserRole(account));
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Unable to authenticate. Please try again.');
+      setAuthError(getAuthErrorMessage(error));
     } finally {
       setIsVerifying(false);
     }
@@ -119,38 +119,36 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
 
     setIsVerifying(true);
     setAuthError('');
+    setAuthNotice('');
     try {
-      const account = await registerAccount({
+      await registerAccount({
         name: name.trim(),
+        email,
         mobile,
         password,
         accountType: 'provider',
         skills: [aidmateSkill],
+        certificateFile,
+        certificateName: certificateName ? `${certificateType} - ${certificateName}` : undefined,
+        experienceYears: Number(experienceYears),
       });
-      setRegisteredAidmate(account);
-      const newPendingAidmate: PendingAidmate = {
-        id: `pending-${Date.now()}`,
-        name: account.name,
-        mobile,
-        providerType: 'professional',
-        submissionDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        profilePictureUrl: `https://api.dicebear.com/7.x/notionists/svg?seed=${name}`,
-        documents: {
-          aadhaarFrontUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=400&q=80',
-          aadhaarBackUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=400&q=80',
-          selfieVideoUrl: 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4',
-          certificateUrl: certificatePreview || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&fit=crop&w=600&q=80',
-          bankPassbookUrl: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=400&q=80'
-        }
-      };
-
-      if (onRegisterAidmatePending) {
-        onRegisterAidmatePending(newPendingAidmate);
-      }
-
       setIsSubmittedForVerification(true);
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Unable to register. Please try again.');
+      setAuthError(getAuthErrorMessage(error));
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    setIsVerifying(true);
+    setAuthError('');
+    setAuthNotice('');
+    try {
+      await requestPasswordReset(email);
+      setAuthNotice('If an account exists for this email, Firebase will send a password-reset link.');
+    } catch (error) {
+      setAuthError(getAuthErrorMessage(error));
     } finally {
       setIsVerifying(false);
     }
@@ -174,13 +172,17 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
           </div>
           <h2 className="text-xl font-black text-gray-900 mb-1">Registration Complete!</h2>
           <p className="text-xs text-gray-600 mb-4">
-            Your AidMate profile & trade certificate have been registered. You can now log in anytime with your phone number <strong>+91 {mobile}</strong>.
+            Your AidMate profile and trade certificate have been registered. Verify <strong>{email}</strong>, then sign in.
           </p>
 
           <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3.5 text-left text-xs mb-5 space-y-1.5">
             <p className="flex justify-between">
               <span className="text-gray-500">Registered Name:</span>
               <strong className="text-gray-900">{name}</strong>
+            </p>
+            <p className="flex justify-between">
+              <span className="text-gray-500">Registered Email:</span>
+              <strong className="text-gray-900">{email}</strong>
             </p>
             <p className="flex justify-between">
               <span className="text-gray-500">Registered Mobile:</span>
@@ -205,13 +207,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
           </div>
 
           <div className="space-y-2">
-            <button
-              onClick={() => registeredAidmate && onSignUpSuccess(registeredAidmate, 'provider')}
-              disabled={!registeredAidmate}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm rounded-2xl transition-all shadow-md flex items-center justify-center gap-1.5"
-            >
-              <LogIn className="w-4 h-4" /> Enter AidMate Dashboard
-            </button>
             <button
               onClick={() => {
                 setIsSubmittedForVerification(false);
@@ -295,7 +290,17 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
                   required
                 />
               )}
-              <div className="space-y-1">
+              <Input
+                id="user-email"
+                label="Email"
+                type="email"
+                value={email}
+                onChange={event => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                required
+              />
+              {userMode === 'register' && <div className="space-y-1">
                 <Input
                   id="mobile"
                   label="Mobile Number"
@@ -308,7 +313,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
                   title="Mobile number must be 10 digits"
                   placeholder="9876543210"
                 />
-              </div>
+              </div>}
               <Input
                 id="user-password"
                 label="Password"
@@ -325,10 +330,16 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
                   {authError}
                 </p>
               )}
+              {authNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{authNotice}</p>}
 
               <Button type="submit" disabled={!isFormValid} isLoading={isVerifying} className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700">
                 {userMode === 'register' ? 'Create User Account' : 'Login as User'}
               </Button>
+              {userMode === 'login' && (
+                <button type="button" onClick={() => void handlePasswordReset()} className="w-full text-center text-xs font-semibold text-indigo-600 hover:underline">
+                  Forgot password?
+                </button>
+              )}
             </form>
           )}
 
@@ -373,27 +384,23 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
                 <form onSubmit={handleAidmateLoginSubmit} className="space-y-4">
                   <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 text-xs text-emerald-900">
                     <p className="font-bold flex items-center gap-1.5 text-emerald-950">
-                      <LogIn className="w-3.5 h-3.5 text-emerald-600" /> Log In with Registered Number
+                      <LogIn className="w-3.5 h-3.5 text-emerald-600" /> Log In with Registered Email
                     </p>
                     <p className="text-[11px] text-emerald-700/90 mt-0.5">
-                      Enter your mobile number to resume your active AidMate status, view accepted jobs, and check your ratings.
+                      Enter your email to resume your AidMate profile, view accepted jobs, and check your ratings.
                     </p>
                   </div>
 
-                  <div className="space-y-1">
-                    <Input
-                      id="registered-aidmate-mobile"
-                      label="Registered Mobile Number"
-                      type="tel"
-                      prefix="+91"
-                      value={mobile}
-                      onChange={handleMobileChange}
-                      required
-                      pattern="\d{10}"
-                      title="Mobile number must be 10 digits"
-                      placeholder="9876543210"
-                    />
-                  </div>
+                  <Input
+                    id="aidmate-login-email"
+                    label="Email"
+                    type="email"
+                    value={email}
+                    onChange={event => setEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                    required
+                  />
                   <Input
                     id="aidmate-login-password"
                     label="Password"
@@ -410,11 +417,15 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
                       {authError}
                     </p>
                   )}
+                  {authNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{authNotice}</p>}
 
                   <Button type="submit" disabled={!isFormValid} isLoading={isVerifying} className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-1.5">
                     <LogIn className="w-4 h-4" />
                     <span>Login to AidMate Account</span>
                   </Button>
+                  <button type="button" onClick={() => void handlePasswordReset()} className="w-full text-center text-xs font-semibold text-emerald-700 hover:underline">
+                    Forgot password?
+                  </button>
 
                   <div className="text-center pt-1">
                     <button
@@ -445,6 +456,17 @@ const SignUpPage: React.FC<SignUpPageProps> = ({
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Suresh Varma"
+                    required
+                  />
+
+                  <Input
+                    id="aidmate-register-email"
+                    label="Email"
+                    type="email"
+                    value={email}
+                    onChange={event => setEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    autoComplete="email"
                     required
                   />
 

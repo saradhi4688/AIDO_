@@ -18,34 +18,10 @@ interface HomeDashboardProps {
   onScanForHelp: (service: string, offer?: string, description?: string, imageUrl?: string) => void;
   onContact: (deal: Deal) => void;
   onOpenChat?: (deal: Deal) => void;
-  onSimulateAccept?: (dealId: string | number) => void;
   dismissedBroadcasts?: Set<string | number>;
   onDismissBroadcast?: (_id: string | number) => void;
   onCompleteRequest?: (_id: string | number) => void;
 }
-
-const RECENT_REQUESTS = [
-  { 
-    title: 'Bike puncture repair', 
-    price: '₹150', 
-    status: 'Completed', 
-    date: 'Oct 25',
-    aidmateName: 'Rajesh Kumar',
-    aidmateAvatar: 'https://i.pravatar.cc/150?u=rajesh',
-    aidmateId: 'aidmate-1',
-    rating: 5
-  },
-  { 
-    title: 'Room cleaning & sanitization', 
-    price: '₹600', 
-    status: 'Completed', 
-    date: 'Oct 26',
-    aidmateName: 'Anitha Reddy',
-    aidmateAvatar: 'https://i.pravatar.cc/150?u=anitha',
-    aidmateId: 'aidmate-2',
-    rating: 5
-  },
-];
 
 const HomeDashboard: React.FC<HomeDashboardProps> = ({
   userData,
@@ -59,7 +35,6 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onScanForHelp,
   onContact,
   onOpenChat,
-  onSimulateAccept,
   dismissedBroadcasts = new Set(),
   onDismissBroadcast = (_id: string | number) => {},
   onCompleteRequest = (_id: string | number) => {}
@@ -70,11 +45,22 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const [selectedProfileForModal, setSelectedProfileForModal] = useState<AidmateProfile | null>(null);
 
   // Requests made by this user
-  const activeRequests = jobBroadcasts.filter(j => j.seekerMobile === userData.mobile);
+  const activeRequests = jobBroadcasts.filter(j =>
+    (j.seekerUid === userData.id || j.seekerMobile === userData.mobile) &&
+    (j.status === 'pending' || j.status === 'accepted'),
+  );
   const myActiveRequest = activeRequests.length > 0 ? activeRequests[0] : null;
+  const completedRequests = jobBroadcasts.filter(j =>
+    (j.seekerUid === userData.id || j.seekerMobile === userData.mobile) && j.status === 'completed',
+  );
 
   // Requests available to work on (not made by user, not declined)
-  const availableRequests = jobBroadcasts.filter(j => j.seekerMobile !== userData?.mobile && !dismissedBroadcasts.has(j.id));
+  const availableRequests = jobBroadcasts.filter(j =>
+    j.status === 'pending' &&
+    j.seekerUid !== userData.id &&
+    j.seekerMobile !== userData.mobile &&
+    !dismissedBroadcasts.has(j.id),
+  );
 
   // Determine previous AidMates from prop or defaults
   const resolvedPreviousAidmates = previousAidmates.length > 0
@@ -127,7 +113,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
           >
             <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
             <span className="text-xs font-black">
-              {(userData.overallRating || 5.0).toFixed(1)}
+              {(userData.overallRating ?? 0).toFixed(1)}
             </span>
           </div>
 
@@ -302,20 +288,25 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <div>
             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Past Services Completed</h3>
             <div className="space-y-3">
-              {RECENT_REQUESTS.map((req, idx) => (
-                <div key={idx} className="bg-white border border-gray-100 rounded-2xl p-4 flex justify-between items-center shadow-sm">
+              {completedRequests.map(req => (
+                <div key={req.id} className="bg-white border border-gray-100 rounded-2xl p-4 flex justify-between items-center shadow-sm">
                   <div>
-                    <h4 className="font-bold text-gray-800 text-sm mb-1">{req.title}</h4>
+                    <h4 className="font-bold text-gray-800 text-sm mb-1">{req.service}</h4>
                     <div className="flex items-center text-xs font-medium text-green-600">
                       <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                      {req.status} • {req.date} • by {req.aidmateName}
+                      Completed • {req.time} • by {req.providerName || 'AidMate'}
                     </div>
                   </div>
                   <div className="font-extrabold text-gray-900 text-sm bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-100">
-                    {req.price}
+                    ₹{req.offer || '—'}
                   </div>
                 </div>
               ))}
+              {completedRequests.length === 0 && (
+                <p className="rounded-2xl border border-gray-100 bg-white p-4 text-center text-xs text-gray-500">
+                  Completed requests will appear here.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -339,12 +330,12 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <div className="flex items-center gap-1.5 justify-end">
                   <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
                   <span className="text-lg font-black text-gray-900">
-                    {(userData.overallRating || 5.0).toFixed(1)}
+                    {(userData.overallRating ?? 0).toFixed(1)}
                   </span>
                   <span className="text-xs text-gray-400">/ 5.0</span>
                 </div>
                 <p className="text-[10px] text-emerald-700 font-semibold mt-0.5">
-                  {userData.reviewCount ? `${userData.reviewCount} reviews received` : 'New Member • Excellent'}
+                  {userData.reviewCount ? `${userData.reviewCount} reviews received` : 'No reviews yet'}
                 </p>
               </div>
             </div>
@@ -487,17 +478,6 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       <span>Direct chat and calling are locked until an AidMate accepts this request.</span>
                     </div>
 
-                    {/* Simulation helper for testing the acceptance flow */}
-                    <button 
-                      onClick={() => {
-                        if (onSimulateAccept) {
-                          onSimulateAccept(myActiveRequest.id);
-                        }
-                      }}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <Zap className="w-3.5 h-3.5" /> Simulate AidMate Accepting (Test Flow)
-                    </button>
                   </div>
                 )}
               </div>
